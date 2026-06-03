@@ -144,6 +144,9 @@ def index():
 # ==========================================
 # Dialogflow Webhook 路由 (強力容錯版)
 # ==========================================
+# ==========================================
+# Dialogflow Webhook 路由 (引導式一問一答)
+# ==========================================
 @app.route('/webhook', methods=['POST'])
 def webhook():
     req = request.get_json(silent=True, force=True)
@@ -160,48 +163,54 @@ def webhook():
     elif intent_name == 'calculate_ascendant':
         parameters = req.get('queryResult', {}).get('parameters', {})
         
-        birth_date = str(parameters.get('birth_date', '')).strip()  # 可能是 2005-09-06 或 20050906
+        # 1. 讀取 Dialogflow 收集到的參數
+        birth_date = str(parameters.get('birth_date', '')).strip()  
         birth_time = str(parameters.get('birth_time', '')).strip()  
-        birth_location = parameters.get('birth_location', '台北市')
+        birth_location = str(parameters.get('birth_location', '')).strip()
         
+        # 2. 【核心關鍵】檢查 Dialogflow 是不是還沒收集完資料？
+        # 如果參數內包含 '$' 符號，代表使用者還沒回答那一題，Dialogflow 只是填入預設變數名
+        if not birth_date or '$' in birth_date:
+            return jsonify({"fulfillmentText": "請問妳的出生年月日是呢？（例如：20050906）"})
+            
+        if not birth_time or '$' in birth_time:
+            return jsonify({"fulfillmentText": "收到日期了！那請問妳是在幾點幾分出生的呢？（例如：12:30）"})
+            
+        if not birth_location or '$' in birth_location or birth_location == "":
+            return jsonify({"fulfillmentText": "最後一步囉！請問妳的出生城市在哪裡呢？（例如：台北市、台中市）"})
+            
+        # 3. 確定三個資料通通拿到（且不是變數符號）後，才高高興興開始解算！
         try:
-            # ---- 1. 強力日期解析相容 ----
-            # 如果包含 ISO 時間標記 T，先切開只留日期部分
+            # ---- 日期解析 ----
             if 'T' in birth_date:
                 birth_date = birth_date.split('T')[0]
                 
             if '-' in birth_date:
-                # 格式: 2005-09-06
                 year, month, day = birth_date.split('-')
             elif len(birth_date) == 8 and birth_date.isdigit():
-                # 格式: 20050906 (完美對應純數字輸入！)
                 year = birth_date[0:4]
                 month = birth_date[4:6]
                 day = birth_date[6:8]
             else:
                 raise ValueError("未知的日期格式")
 
-            # ---- 2. 強力時間解析相容 ----
-            # 預設預防：如果使用者漏傳時間，給予預設中午 12:00
+            # ---- 時間解析 ----
             hour, minute = "12", "00"
-            
             if 'T' in birth_time:
                 time_part = birth_time.split('T')[1]
                 hour = time_part.split(':')[0]
                 minute = time_part.split(':')[1]
             elif ':' in birth_time:
-                # 格式: 14:30
                 hour, minute = birth_time.split(':')
             elif len(birth_time) == 4 and birth_time.isdigit():
-                # 格式: 1430
                 hour = birth_time[0:2]
                 minute = birth_time[2:4]
 
-            # 呼叫獨立計算邏輯
+            # 呼叫獨立計算邏輯，這時的 birth_location 絕對是乾淨真實的城市名稱了！
             result_text = calculate_local_ascendant(year, month, day, hour, minute, birth_location)
             
         except Exception as e:
-            result_text = f"❌ 抱歉，輸入的生日格式（{birth_date}）解析出錯: {str(e)}"
+            result_text = f"❌ 抱歉，輸入的生日格式解析出錯: {str(e)}"
         
         return jsonify({"fulfillmentText": result_text})
 
