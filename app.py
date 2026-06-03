@@ -144,70 +144,91 @@ def index():
 # ==========================================
 # Dialogflow Webhook 路由 (強力容錯版)
 # ==========================================
-# ==========================================
-# Dialogflow Webhook 路由 (引導式一問一答)
-# ==========================================
 @app.route('/webhook', methods=['POST'])
 def webhook():
     req = request.get_json(silent=True, force=True)
     intent_name = req.get('queryResult', {}).get('intent', {}).get('displayName')
     
-    # ======= LINE 功能一：星座運勢功能 =======
+    # ------- LINE 功能一：星座運勢功能 -------
     if intent_name == 'search_fortune':
         parameters = req.get('queryResult', {}).get('parameters', {})
-        constellation = parameters.get('constellation')
+        constellation = parameters.get('constellation', '')
         result_text = get_today_fortune(constellation)
         return jsonify({"fulfillmentText": result_text})
         
-    # ======= LINE 功能二：算上升星盤功能 =======
+    # ------- LINE 功能二：算上升星盤功能 -------
     elif intent_name == 'calculate_ascendant':
         parameters = req.get('queryResult', {}).get('parameters', {})
         
-        # 1. 讀取 Dialogflow 收集到的參數
-        birth_date = str(parameters.get('birth_date', '')).strip()  
-        birth_time = str(parameters.get('birth_time', '')).strip()  
-        birth_location = str(parameters.get('birth_location', '')).strip()
+        # 1. 讀取 Dialogflow 傳過來的原始參數
+        raw_date = parameters.get('birth_date', '')
+        raw_time = parameters.get('birth_time', '')
+        raw_location = parameters.get('birth_location', '')
         
-        # 2. 【核心關鍵】檢查 Dialogflow 是不是還沒收集完資料？
-        # 如果參數內包含 '$' 符號，代表使用者還沒回答那一題，Dialogflow 只是填入預設變數名
-        if not birth_date or '$' in birth_date:
+        # 將它們轉成字串，方便做後續防禦判斷
+        birth_date = str(raw_date).strip()  
+        birth_time = str(raw_time).strip()  
+        
+        # 2. 【核心防禦】檢查變數是否尚未填寫或破圖
+        def is_invalid(val):
+            return not val or '$' in val or '@' in val or 'sys.' in val or val.lower() == 'none' or val == ''
+
+        if is_invalid(birth_date):
             return jsonify({"fulfillmentText": "請問妳的出生年月日是呢？（例如：20050906）"})
             
-        if not birth_time or '$' in birth_time:
-            return jsonify({"fulfillmentText": "收到日期了！那請問妳是在幾點幾分出生的呢？（例如：12:30）"})
+        if is_invalid(birth_time):
+            return jsonify({"fulfillmentText": "收到日期了！那請問妳是在幾點幾分出生的呢？（例如：10:00）"})
             
-        if not birth_location or '$' in birth_location or birth_location == "":
-            return jsonify({"fulfillmentText": "最後一步囉！請問妳的出生城市在哪裡呢？（例如：台北市、台中市）"})
+        if is_invalid(str(raw_location)):
+            return jsonify({"fulfillmentText": "最後一步囉！請問妳的出生城市在哪裡呢？（例如：台北市、嘉義縣）"})
             
-        # 3. 確定三個資料通通拿到（且不是變數符號）後，才高高興興開始解算！
+        # 3. 資料到齊，開始進行極致的防呆格式解析
         try:
-            # ---- 日期解析 ----
+            # ---- A. 日期解析 ----
             if 'T' in birth_date:
                 birth_date = birth_date.split('T')[0]
-                
             if '-' in birth_date:
                 year, month, day = birth_date.split('-')
             elif len(birth_date) == 8 and birth_date.isdigit():
-                year = birth_date[0:4]
-                month = birth_date[4:6]
-                day = birth_date[6:8]
+                year, month, day = birth_date[0:4], birth_date[4:6], birth_date[6:8]
             else:
                 raise ValueError("未知的日期格式")
 
-            # ---- 時間解析 ----
-            hour, minute = "12", "00"
+            # ---- B. 時間解析 & 24小時制修正防呆 ----
+            # Dialogflow 常把 "10:00" 自動當成 "22:00" (晚上10點)
+            hour_str, minute_str = "12", "00"
             if 'T' in birth_time:
                 time_part = birth_time.split('T')[1]
-                hour = time_part.split(':')[0]
-                minute = time_part.split(':')[1]
+                hour_str = time_part.split(':')[0]
+                minute_str = time_part.split(':')[1]
             elif ':' in birth_time:
-                hour, minute = birth_time.split(':')
+                hour_str, minute_str = birth_time.split(':')
             elif len(birth_time) == 4 and birth_time.isdigit():
-                hour = birth_time[0:2]
-                minute = birth_time[2:4]
+                hour_str, minute_str = birth_time[0:2], birth_time[2:4]
 
-            # 呼叫獨立計算邏輯，這時的 birth_location 絕對是乾淨真實的城市名稱了！
-            result_text = calculate_local_ascendant(year, month, day, hour, minute, birth_location)
+            hour = int(hour_str)
+            minute = int(minute_str)
+
+            # 【黃金防呆線】如果 Dialogflow 擅自判定為晚上 (22點)，但原對話文字中沒有提到"晚上/下午/PM"
+            # 或者是妳在右側測試時單純打 "10:00"，我們自動幫她校正回早上的 10 點！
+            resolved_query = req.get('queryResult', {}).get('queryText', '')
+            if hour > 12 and not any(k in resolved_query for k in ['晚', '下午', 'pm', 'PM', '夜']):
+                hour = hour - 12
+
+            # 重新補零轉回字串
+            final_hour = str(hour).zfill(2)
+            final_minute = str(minute).zfill(2)
+
+            # ---- C. 出生城市精準萃取 ----
+            # 如果接收到的是字典（Dict），從中抓出 'admin-area' 或 'city'，避免噴出整串 JSON
+            clean_location = "未知城市"
+            if isinstance(raw_location, dict):
+                clean_location = raw_location.get('admin-area') or raw_location.get('city') or raw_location.get('subadmin-area') or "未知城市"
+            else:
+                clean_location = str(raw_location)
+
+            # 4. 呼叫解算函數，噴出完美成果！
+            result_text = calculate_local_ascendant(year, month, day, final_hour, final_minute, clean_location)
             
         except Exception as e:
             result_text = f"❌ 抱歉，輸入的生日格式解析出錯: {str(e)}"
@@ -219,5 +240,7 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(debug=True)
+
+
 
     
