@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>流星占星 | 每日星座運勢搜尋</title>
+    <title>流星占星 | 運勢與上升星盤精算</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&family=Poppins:wght@300;500;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -36,7 +36,6 @@
             position: relative;
         }
 
-        /* 背景裝飾星光 */
         body::before {
             content: '';
             position: absolute;
@@ -61,12 +60,11 @@
             padding: 40px 30px;
             box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
             z-index: 1;
-            transition: all 0.4s ease;
         }
 
         header {
             text-align: center;
-            margin-bottom: 35px;
+            margin-bottom: 25px;
         }
 
         h2 {
@@ -86,58 +84,118 @@
             text-transform: uppercase;
         }
 
+        /* 功能切換按鈕區 */
+        .tab-container {
+            display: flex;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 5px;
+            border-radius: 14px;
+            margin-bottom: 30px;
+            border: 1px solid var(--panel-border);
+        }
+
+        .tab-btn {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 12px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        .tab-btn.active {
+            background: linear-gradient(135deg, #c5a028 0%, #9a7b1c 100%);
+            color: #0f0c1b;
+            font-weight: 700;
+            box-shadow: 0 4px 10px rgba(212, 175, 55, 0.2);
+        }
+
+        /* 表單內容切換控制 */
+        .form-panel {
+            display: none;
+            animation: fadeIn 0.4s ease forwards;
+        }
+
+        .form-panel.active {
+            display: block;
+        }
+
+        /* 表單樣式 */
+        .input-group {
+            margin-bottom: 18px;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 13px;
+            color: var(--accent-gold);
+            margin-bottom: 8px;
+            letter-spacing: 1px;
+        }
+
         .search-box form {
             display: flex;
             gap: 12px;
-            position: relative;
         }
 
-        input[type="text"] {
-            flex: 1;
+        input[type="text"], input[type="date"], input[type="time"] {
+            width: 100%;
             background: rgba(0, 0, 0, 0.2);
             border: 1px solid var(--panel-border);
-            padding: 15px 20px;
+            padding: 14px 18px;
             border-radius: 14px;
-            font-size: 16px;
+            font-size: 15px;
             color: #fff;
             font-family: inherit;
             transition: all 0.3s ease;
         }
 
-        input[type="text"]:focus {
+        input:focus {
             outline: none;
             border-color: var(--accent-gold);
             box-shadow: 0 0 15px var(--accent-glow);
             background: rgba(0, 0, 0, 0.3);
         }
 
-        input[type="text"]::placeholder {
+        input::placeholder {
             color: rgba(255, 255, 255, 0.25);
         }
 
-        input[type="submit"] {
+        /* 送出按鈕 */
+        .submit-btn {
+            width: 100%;
             background: linear-gradient(135deg, #c5a028 0%, #9a7b1c 100%);
             color: #0f0c1b;
             border: none;
-            padding: 0 25px;
+            padding: 15px;
             border-radius: 14px;
             font-size: 16px;
             font-weight: 700;
             cursor: pointer;
             font-family: inherit;
             transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            margin-top: 10px;
         }
 
-        input[type="submit"]:hover {
+        .submit-btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(212, 175, 55, 0.4);
             background: linear-gradient(135deg, #d4af37 0%, #a88722 100%);
         }
 
-        input[type="submit"]:active {
-            transform: translateY(0);
+        /* 搜尋運勢的專用單行按鈕樣式 */
+        .inline-submit {
+            width: auto;
+            padding: 0 25px;
+            margin-top: 0;
         }
 
+        /* 結果展示區 */
         .result-container {
             margin-top: 35px;
             border-top: 1px solid var(--panel-border);
@@ -150,7 +208,6 @@
             border: 1px dashed rgba(212, 175, 55, 0.2);
             border-radius: 16px;
             padding: 25px;
-            position: relative;
         }
 
         .fortune-title {
@@ -165,27 +222,13 @@
 
         .fortune-title::before {
             content: '✦';
-            font-size: 16px;
-            color: var(--accent-gold);
         }
 
         .fortune-content {
             font-size: 15px;
             line-height: 1.8;
             color: rgba(245, 245, 247, 0.9);
-            letter-spacing: 0.5px;
             white-space: pre-line;
-        }
-
-        .error-msg {
-            color: #ff6b6b;
-            background: rgba(255, 107, 107, 0.08);
-            border: 1px solid rgba(255, 107, 107, 0.2);
-            padding: 15px 20px;
-            border-radius: 14px;
-            font-size: 14px;
-            text-align: center;
-            line-height: 1.5;
         }
 
         @keyframes fadeIn {
@@ -195,9 +238,8 @@
 
         @media (max-width: 480px) {
             .container { padding: 30px 20px; }
-            h2 { font-size: 24px; }
             .search-box form { flex-direction: column; }
-            input[type="submit"] { padding: 15px 0; }
+            .inline-submit { width: 100%; padding: 15px 0; }
         }
     </style>
 </head>
@@ -205,34 +247,75 @@
 
     <div class="container">
         <header>
-            <h2>每日星座運勢搜尋</h2>
-            <div class="subtitle">Horoscope Insights</div>
+            <h2>流星神祕占星台</h2>
+            <div class="subtitle">Astro & Horoscope</div>
         </header>
 
-        <div class="search-box">
+        <div class="tab-container">
+            <button class="tab-btn active" onclick="switchTab('fortune')">每日運勢搜尋</button>
+            <button class="tab-btn" onclick="switchTab('ascendant')">精算上升星座</button>
+        </div>
+
+        <div id="panel-fortune" class="form-panel active">
+            <div class="search-box">
+                <form action="/" method="POST">
+                    <input type="hidden" name="form_type" value="fortune">
+                    <input type="text" name="keyword" placeholder="輸入星座（如：雙子、處女）..." value="{{ keyword if form_type == 'fortune' else '' }}" required autocomplete="off">
+                    <input type="submit" class="submit-btn inline-submit" value="探索運勢">
+                </form>
+            </div>
+        </div>
+
+        <div id="panel-ascendant" class="form-panel">
             <form action="/" method="POST">
-                <input type="text" name="keyword" placeholder="輸入星座（如：雙子、處女）..." value="{{ keyword }}" required autocomplete="off">
-                <input type="submit" value="探索運勢">
+                <input type="hidden" name="form_type" value="ascendant">
+                
+                <div class="input-group">
+                    <label>出生年月日</label>
+                    <input type="date" name="birth_date" required>
+                </div>
+                
+                <div class="input-group">
+                    <label>精確出生時間</label>
+                    <input type="time" name="birth_time" required>
+                </div>
+                
+                <div class="input-group">
+                    <label>出生城市</label>
+                    <input type="text" name="birth_location" placeholder="例如：台北市、台中市" required autocomplete="off">
+                </div>
+                
+                <input type="submit" class="submit-btn" value="開始星盤精算 ✦">
             </form>
         </div>
 
-        {% if keyword %}
+        {% if result_text %}
             <div class="result-container">
-                {% if fortune %}
-                    <div class="fortune-card">
-                        <div class="fortune-title">{{ keyword }}</div>
-                        <div class="fortune-content">
-                            {{ fortune }}
-                        </div>
-                    </div>
-                {% else %}
-                    <div class="error-msg">
-                        ✦ 找不到「{{ keyword }}」的運勢。<br>請檢查輸入是否正確（例如：雙子、天秤）。
-                    </div>
-                {% endif %}
+                <div class="fortune-card">
+                    <div class="fortune-title">占星算盤結果</div>
+                    <div class="fortune-content">{{ result_text }}</div>
+                </div>
             </div>
         {% endif %}
     </div>
+
+    <script>
+        function switchTab(type) {
+            // 切換按鈕的高亮狀態
+            const buttons = document.querySelectorAll('.tab-btn');
+            buttons[0].classList.toggle('active', type === 'fortune');
+            buttons[1].classList.toggle('active', type === 'ascendant');
+
+            // 切換顯示的輸入面板
+            document.getElementById('panel-fortune').classList.toggle('active', type === 'fortune');
+            document.getElementById('panel-ascendant').classList.toggle('active', type === 'ascendant');
+        }
+
+        // 頁面重整後，如果剛剛送出的是上升星座，就讓面板維持在上升星座
+        {% if form_type == 'ascendant' %}
+            switchTab('ascendant');
+        {% endif %}
+    </script>
 
 </body>
 </html>
