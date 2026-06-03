@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>每日星座運勢搜尋</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+        }
+        h2 {
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        .search-box {
+            margin-bottom: 30px;
+        }
+        input[type="text"] {
+            padding: 5px;
+            font-size: 14px;
+            width: 200px;
+        }
+        input[type="submit"] {
+            padding: 5px 15px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .result-container {
+            border-top: 1px solid #000;
+            padding-top: 20px;
+            margin-top: 20px;
+            max-width: 600px;
+        }
+        .fortune-title {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+        .fortune-content {
+            font-size: 16px;
+            line-height: 1.6;
+            color: #333;
+        }
+        .error-msg {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>每日星座運勢搜尋</h2>
+
+    <div class="search-box">
+        <form action="/" method="POST">
+            <input type="text" name="keyword" placeholder="輸入星座關鍵字（如：雙子）..." value="{{ keyword }}" required>
+            <input type="submit" value="搜尋">
+        </form>
+    </div>
+
+    {% if keyword %}
+        <div class="result-container">
+            {% if fortune %}
+                <div class="fortune-title">星座名稱：{{ keyword }}</div>
+                <div class="fortune-content">
+                    <strong>今日運勢：</strong><br>
+                    {{ fortune }}
+                </div>
+            {% else %}
+                <div class="error-msg">找不到「{{ keyword }}」的運勢，請檢查輸入是否正確（例如：雙子、牡羊）。</div>
+            {% endif %}
+        </div>
+    {% endif %}
+
+</body>
+</html>
