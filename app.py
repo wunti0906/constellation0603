@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 app = Flask(__name__, template_folder='templates')
 
 # ==========================================
-# 核心功能一：內建恆星時上升星座精算演算法 (完全防禦外部阻擋)
+# 核心功能一：內建恆星時上升星座精算演算法
 # ==========================================
 def calculate_local_ascendant(year, month, day, hour, minute, location):
     """
@@ -35,11 +35,10 @@ def calculate_local_ascendant(year, month, day, hour, minute, location):
     gmst = 24110.54841 + 8640184.812866 * t + 0.093104 * (t**2) - 0.0000062 * (t**3)
     gmst = (gmst / 3600.0) % 24
     
-    # 3. 處理台灣（或使用者輸入地區）的經緯度與時區 (預設東八區與台北觀測點)
-    # 不管有沒有輸入城市，都能完美包容防災
-    timezone_offset = 8.0  # 台灣時區
-    lng = 121.50           # 台北經度
-    lat = 25.05            # 台北緯度
+    # 3. 預設台灣觀測點 (東八區)
+    timezone_offset = 8.0  
+    lng = 121.50           
+    lat = 25.05            
     
     # 計算地方平恆星時 (LST)
     local_time_hours = h + (mn / 60.0)
@@ -47,21 +46,19 @@ def calculate_local_ascendant(year, month, day, hour, minute, location):
     lst = gmst + utc_time_hours * 1.00273790935 + (lng / 15.0)
     lst_degrees = (lst * 15.0) % 360
 
-    # 4. 根據黃赤交角計算天頂 (RAMC) 與上升點斜升運算 (Ascendant Formula)
-    # 這裡採用簡化占星幾何公式，推算地方恆星時對應之上升黃道度數
-    epsilon = 23.4393 - 0.0130 * t  # 黃赤交角
+    # 4. 根據黃赤交角計算天頂與上升點斜升運算
+    epsilon = 23.4393 - 0.0130 * t  
     import math
     asc_rad = math.atan2(-math.cos(math.radians(lst_degrees)), 
                          math.sin(math.radians(lst_degrees)) * math.cos(math.radians(epsilon)) + 
                          math.tan(math.radians(lat)) * math.sin(math.radians(epsilon)))
     asc_deg = math.degrees(asc_rad) % 360
     
-    # 5. 將黃道度數對照轉換至十二星座
+    # 5. 轉換至十二星座
     zodiac_signs = [
         "白羊座", "金牛座", "雙子座", "巨蟹座", "獅子座", "處女座",
         "天秤座", "天蠍座", "射手座", "摩羯座", "水瓶座", "雙魚座"
     ]
-    # 天文盤度數對齊校正
     index = int((asc_deg + 30) % 360 // 30)
     ascendant_sign = zodiac_signs[index]
     
@@ -96,7 +93,7 @@ def get_today_fortune(constellation_name):
     astro_id = astro_map[constellation_name]
     url = f"https://astro.click108.com.tw/daily_{astro_id}.php?iAstro={astro_id}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
     try:
@@ -133,11 +130,8 @@ def index():
             b_loc = request.form.get('birth_location')   # 城市
             
             try:
-                # 切出時間參數
                 year, month, day = b_date.split('-')
                 hour, minute = b_time.split(':')
-                
-                # 直接呼叫全新升級的內建星盤演算法，完美繞過網路阻擋！
                 ascendant_data = calculate_local_ascendant(year, month, day, hour, minute, b_loc)
             except Exception as e:
                 ascendant_data = f"❌ 網頁資料解析失敗: {str(e)}"
@@ -148,7 +142,7 @@ def index():
 
 
 # ==========================================
-# Dialogflow Webhook 路由 (LINE 端分流)
+# Dialogflow Webhook 路由 (強力容錯版)
 # ==========================================
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -159,39 +153,57 @@ def webhook():
     if intent_name == 'search_fortune':
         parameters = req.get('queryResult', {}).get('parameters', {})
         constellation = parameters.get('constellation')
-        
         result_text = get_today_fortune(constellation)
-        
-        reply = {"fulfillmentText": result_text}
-        return jsonify(reply)
+        return jsonify({"fulfillmentText": result_text})
         
     # ======= LINE 功能二：算上升星盤功能 =======
     elif intent_name == 'calculate_ascendant':
         parameters = req.get('queryResult', {}).get('parameters', {})
         
-        birth_date = parameters.get('birth_date')     # 格式：2000-01-01T12:00:00+08:00
-        birth_time = parameters.get('birth_time')     # 格式：2000-01-01T14:30:00+08:00
-        birth_location = parameters.get('birth_location') # 城市
+        birth_date = str(parameters.get('birth_date', '')).strip()  # 可能是 2005-09-06 或 20050906
+        birth_time = str(parameters.get('birth_time', '')).strip()  
+        birth_location = parameters.get('birth_location', '台北市')
         
         try:
-            year = birth_date.split('-')[0]
-            month = birth_date.split('-')[1]
-            day = birth_date.split('-')[2][:2]
+            # ---- 1. 強力日期解析相容 ----
+            # 如果包含 ISO 時間標記 T，先切開只留日期部分
+            if 'T' in birth_date:
+                birth_date = birth_date.split('T')[0]
+                
+            if '-' in birth_date:
+                # 格式: 2005-09-06
+                year, month, day = birth_date.split('-')
+            elif len(birth_date) == 8 and birth_date.isdigit():
+                # 格式: 20050906 (完美對應純數字輸入！)
+                year = birth_date[0:4]
+                month = birth_date[4:6]
+                day = birth_date[6:8]
+            else:
+                raise ValueError("未知的日期格式")
+
+            # ---- 2. 強力時間解析相容 ----
+            # 預設預防：如果使用者漏傳時間，給予預設中午 12:00
+            hour, minute = "12", "00"
             
-            time_part = birth_time.split('T')[1]
-            hour = time_part.split(':')[0]
-            minute = time_part.split(':')[1]
-            
-            # LINE 端也完美同步呼叫獨立計算邏輯
+            if 'T' in birth_time:
+                time_part = birth_time.split('T')[1]
+                hour = time_part.split(':')[0]
+                minute = time_part.split(':')[1]
+            elif ':' in birth_time:
+                # 格式: 14:30
+                hour, minute = birth_time.split(':')
+            elif len(birth_time) == 4 and birth_time.isdigit():
+                # 格式: 1430
+                hour = birth_time[0:2]
+                minute = birth_time[2:4]
+
+            # 呼叫獨立計算邏輯
             result_text = calculate_local_ascendant(year, month, day, hour, minute, birth_location)
             
         except Exception as e:
-            result_text = f"❌ 抱歉，LINE 傳入的生日資料格式解析出錯: {str(e)}"
+            result_text = f"❌ 抱歉，輸入的生日格式（{birth_date}）解析出錯: {str(e)}"
         
-        reply = {
-            "fulfillmentText": result_text
-        }
-        return jsonify(reply)
+        return jsonify({"fulfillmentText": result_text})
 
     return jsonify({"fulfillmentText": "未知的 Dialogflow 指令"})
 
