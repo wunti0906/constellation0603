@@ -1,75 +1,146 @@
 import os
-from flask import Flask, render_template, request, jsonify
 import requests
 from bs4 import BeautifulSoup
+import re
+from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__, template_folder='templates')
 
+# 黃道十二星座標準順序（用於順移計算）
+ZODIAC_LIST = [
+    "白羊座", "金牛座", "雙子座", "巨蟹座", "獅子座", "處女座",
+    "天秤座", "天蠍座", "射手座", "摩羯座", "水瓶座", "雙魚座"
+]
+
 # ==========================================
-# 核心功能一：內建恆星時上升星座精算演算法
+# 爬蟲模組：2026 年水星逆行資料爬取
 # ==========================================
-def calculate_local_ascendant(year, month, day, hour, minute, location):
+def crawl_mercury_retrograde():
     """
-    不依賴任何外部占星網站，純 Python 根據恆星時與天文公式精算上升星座
+    爬取丹尼爾天空網頁，並精確過濾出 2026 年的水星逆行時間資料
     """
+    url = "https://www.taipeidaniel.idv.tw/articles-astrology-mercuryrd-2010-2029.htm"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
     try:
-        y = int(year)
-        m = int(month)
-        d = int(day)
-        h = int(hour)
-        mn = int(minute)
-    except Exception:
-        return "❌ 輸入的時間格式不正確。"
+        # verify=False 防止憑證問題卡住, timeout=10 防止網頁太慢導致系統卡死
+        response = requests.get(url, headers=headers, verify=False, timeout=10)
+        response.encoding = 'utf-8' # 強制指定編碼，防範中文字亂碼
+        
+        if response.status_code != 200:
+            print(f"【水逆爬蟲】網頁請求失敗，錯誤代碼：{response.status_code}")
+            return None
+            
+        soup = BeautifulSoup(response.text, 'html.parser')
+        all_text = soup.get_text()
+        lines = all_text.split('\n')
+        
+        mercury_2026_events = []
+        for line in lines:
+            line = line.strip()
+            # 條件：必須包含 2026，且有逆行或時間～符號
+            if "2026" in line and ("逆行" in line or "～" in line or "~" in line):
+                clean_line = re.sub(r'\s+', ' ', line) # 清洗掉多餘的空格
+                # 防範重複加入相同的句子
+                if clean_line not in mercury_2026_events:
+                    mercury_2026_events.append(clean_line)
+                
+        return mercury_2026_events
+    except Exception as e:
+        print(f"【水逆爬蟲】爬取過程中發生錯誤: {e}")
+        return None
 
-    # 1. 計算儒略日 (Julian Day) 基底
-    if m <= 2:
-        y -= 1
-        m += 12
-    A = y // 100
-    B = 2 - A + (A // 4)
-    jd = int(365.25 * (y + 4716)) + int(30.6001 * (m + 1)) + d + B - 1524.5
-    
-    # 2. 計算格林威治平恆星時 (GMST)
-    d_jd = jd - 2451545.0
-    t = d_jd / 36525.0
-    gmst = 24110.54841 + 8640184.812866 * t + 0.093104 * (t**2) - 0.0000062 * (t**3)
-    gmst = (gmst / 3600.0) % 24
-    
-    # 3. 預設台灣觀測點 (東八區)
-    timezone_offset = 8.0  
-    lng = 121.50           
-    lat = 25.05            
-    
-    # 計算地方平恆星時 (LST)
-    local_time_hours = h + (mn / 60.0)
-    utc_time_hours = local_time_hours - timezone_offset
-    lst = gmst + utc_time_hours * 1.00273790935 + (lng / 15.0)
-    lst_degrees = (lst * 15.0) % 360
+# ======= 全域變數：優化系統效能（系統開機時只爬一次） =======
+print("🚀 [系統啟動] 正在預先爬取 2026 年水逆資料並記錄至記憶體...")
+MERCURY_DATA_2026 = crawl_mercury_retrograde()
 
-    # 4. 根據黃赤交角計算天頂與上升點斜升運算
-    epsilon = 23.4393 - 0.0130 * t  
-    import math
-    asc_rad = math.atan2(-math.cos(math.radians(lst_degrees)), 
-                         math.sin(math.radians(lst_degrees)) * math.cos(math.radians(epsilon)) + 
-                         math.tan(math.radians(lat)) * math.sin(math.radians(epsilon)))
-    asc_deg = math.degrees(asc_rad) % 360
-    
-    # 5. 轉換至十二星座
-    zodiac_signs = [
-        "白羊座", "金牛座", "雙子座", "巨蟹座", "獅子座", "處女座",
-        "天秤座", "天蠍座", "射手座", "摩羯座", "水瓶座", "雙魚座"
-    ]
-    index = int((asc_deg + 30) % 360 // 30)
-    ascendant_sign = zodiac_signs[index]
-    
-    month_str = str(month).zfill(2)
-    day_str = str(day).zfill(2)
-    hour_str = str(hour).zfill(2)
-    minute_str = str(minute).zfill(2)
-    loc_display = location if location else "預設觀測點"
-    
-    return f"✨【精確星盤本地精算成功】✨\n\n🔮 妳的上升星座是：{ascendant_sign}\n\n根據妳輸入的時間 ({year}/{month_str}/{day_str} {hour_str}:{minute_str}，地點：{loc_display})，這顆星代表妳給人的第一印象與妳靈魂的面具喔！"
+if MERCURY_DATA_2026:
+    print(f"✅ [系統啟動成功] 已成功載入 {len(MERCURY_DATA_2026)} 筆水逆行事曆資料！")
+else:
+    print("⚠️ [系統警告] 水逆資料載入失敗，請確認網路連線或目標網頁是否更動。")
+# =========================================================
 
+
+# ==========================================
+# 核心功能一：完全依照妳提供的「太陽星座+時間順移」公式（含不知道時間之保底防呆）
+# ==========================================
+def get_sun_sign(month, day):
+    """根據月日判斷出生的太陽星座"""
+    m, d = int(month), int(day)
+    if (m == 3 and d >= 21) or (m == 4 and d <= 19): return "白羊座"
+    if (m == 4 and d >= 20) or (m == 5 and d <= 20): return "金牛座"
+    if (m == 5 and d >= 21) or (m == 6 and d <= 21): return "雙子座"
+    if (m == 6 and d >= 22) or (m == 7 and d <= 22): return "巨蟹座"
+    if (m == 7 and d >= 23) or (m == 8 and d <= 22): return "獅子座"
+    if (m == 8 and d >= 23) or (m == 9 and d <= 22): return "處女座"
+    if (m == 9 and d >= 23) or (m == 10 and d <= 23): return "天秤座"
+    if (m == 10 and d >= 24) or (m == 11 and d <= 22): return "天蠍座"
+    if (m == 11 and d >= 23) or (m == 12 and d <= 21): return "射手座"
+    if (m == 12 and d >= 22) or (m == 1 and d <= 19): return "摩羯座"
+    if (m == 1 and d >= 20) or (m == 2 and d <= 18): return "水瓶座"
+    return "雙魚座"
+
+def calculate_formula_ascendant(month, day, hour_str, minute_str):
+    """
+    依照妳提供的公式邏輯：
+    1. 早上 06:00 ~ 08:00 出生，上升星座 = 太陽星座。
+    2. 每往後推遲 2 個小時，上升星座就順移下一個星座。
+    3. 【新增防呆】若不知道時間，則預設中午 12:00 進行盲測。
+    """
+    is_unknown_time = False
+    h_str = str(hour_str).strip()
+    m_str = str(minute_str).strip()
+    
+    # 如果時間字串包含不知道的關鍵字，或是留空，則啟動預設中午 12 點保底機制
+    if not h_str or any(k in h_str for k in ['不知', '忘記', '不確', 'none', 'None', 'null', '不知道']):
+        h = 12
+        m = 0
+        is_unknown_time = True
+    else:
+        try:
+            h = int(h_str)
+            m = int(m_str)
+        except ValueError:
+            h = 12
+            m = 0
+            is_unknown_time = True
+    
+    sun_sign = get_sun_sign(month, day)
+    base_index = ZODIAC_LIST.index(sun_sign)
+    
+    birth_time_in_minutes = h * 60 + m
+    base_time_in_minutes = 6 * 60  
+    
+    time_diff = birth_time_in_minutes - base_time_in_minutes
+    if time_diff < 0:
+        time_diff += 1440
+        
+    shift_steps = time_diff // 120
+    final_index = (base_index + shift_steps) % 12
+    ascendant_sign = ZODIAC_LIST[final_index]
+    
+    emoji_map = {
+        "白羊座": "白羊座 ♈", "金牛座": "金牛座 ♉", "雙子座": "雙子座 ♊",
+        "巨蟹座": "巨蟹座 ♋", "獅子座": "獅子座 ♌", "處女座": "處女座 ♍",
+        "天秤座": "天秤座 ♎", "天蠍座": "天蠍座 ♏", "射手座": "射手座 ♐",
+        "摩羯座": "摩羯座 ♑", "水瓶座": "水瓶座 ♒", "雙魚座": "雙魚座 ♓"
+    }
+    
+    display_sign = emoji_map[ascendant_sign].replace("白羊", "牡羊")
+    
+    result = (
+        f"✨ 妳的上升星座是：{display_sign}✨\n\n"
+        f"上升星座代表妳出生時，東方地平線正升起的星座，也是別人眼中的妳！"
+    )
+    
+    if is_unknown_time:
+        result += (
+            "\n\n💡【貼心提示】\n"
+            "因為妳不確定具體出生時間，系統已自動為妳使用「中午 12:00」進行估算。"
+        )
+        
+    return result
 
 # ==========================================
 # 核心功能二：Click108 - 每日星座運勢爬蟲功能
@@ -93,7 +164,7 @@ def get_today_fortune(constellation_name):
     astro_id = astro_map[constellation_name]
     url = f"https://astro.click108.com.tw/daily_{astro_id}.php?iAstro={astro_id}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
     
     try:
@@ -117,24 +188,25 @@ def index():
     if request.method == 'POST':
         form_type = request.form.get('form_type')
         
-        # 情況 A：網頁查「每日運勢」
         if form_type == 'fortune':
             keyword = request.form.get('keyword')
             fortune_data = get_today_fortune(keyword) 
             return render_template('astro.html', result_text=fortune_data, keyword=keyword, form_type='fortune')
             
-        # 情況 B：網頁查「上升星座」
         elif form_type == 'ascendant':
-            b_date = request.form.get('birth_date')     # 格式: 2000-01-01
-            b_time = request.form.get('birth_time')     # 格式: 12:30
-            b_loc = request.form.get('birth_location')   # 城市
+            b_date = request.form.get('birth_date')     
+            b_time = request.form.get('birth_time')     
             
             try:
                 year, month, day = b_date.split('-')
-                hour, minute = b_time.split(':')
-                ascendant_data = calculate_local_ascendant(year, month, day, hour, minute, b_loc)
+                if b_time:
+                    hour, minute = b_time.split(':')
+                else:
+                    hour, minute = "不知道", "不知道" 
+                    
+                ascendant_data = calculate_formula_ascendant(month, day, hour, minute)
             except Exception as e:
-                ascendant_data = f"❌ 網頁資料解析失敗: {str(e)}"
+                ascendant_data = f"網頁資料解析失敗: {str(e)}"
                 
             return render_template('astro.html', result_text=ascendant_data, form_type='ascendant')
             
@@ -142,47 +214,44 @@ def index():
 
 
 # ==========================================
-# Dialogflow Webhook 路由 (強力容錯版)
+# Dialogflow Webhook 路由（完美過濾使用者說「不知道時間」的情境 + 新增水逆意圖）
 # ==========================================
 @app.route('/webhook', methods=['POST'])
 def webhook():
     req = request.get_json(silent=True, force=True)
     intent_name = req.get('queryResult', {}).get('intent', {}).get('displayName')
     
-    # ------- LINE 功能一：星座運勢功能 -------
+    # LINE 功能一：星座運勢
     if intent_name == 'search_fortune':
         parameters = req.get('queryResult', {}).get('parameters', {})
         constellation = parameters.get('constellation', '')
         result_text = get_today_fortune(constellation)
         return jsonify({"fulfillmentText": result_text})
         
-    # ------- LINE 功能二：算上升星盤功能 -------
+    # LINE 功能二：算上升星座
     elif intent_name == 'calculate_ascendant':
         parameters = req.get('queryResult', {}).get('parameters', {})
         
-        # 1. 讀取 Dialogflow 傳過來的原始參數
         raw_date = parameters.get('birth_date', '')
         raw_time = parameters.get('birth_time', '')
-        raw_location = parameters.get('birth_location', '')
         
-        # 將它們轉成字串，方便做後續防禦判斷
         birth_date = str(raw_date).strip()  
         birth_time = str(raw_time).strip()  
         
-        # 2. 【核心防禦】檢查變數是否尚未填寫或破圖
         def is_invalid(val):
             return not val or '$' in val or '@' in val or 'sys.' in val or val.lower() == 'none' or val == ''
 
+        # 1. 檢查日期
         if is_invalid(birth_date):
-            return jsonify({"fulfillmentText": "請問妳的出生年月日是呢？（例如：20050906）"})
+            return jsonify({"fulfillmentText": "請問妳的出生年月日是？（例如：20050906）"})
             
-        if is_invalid(birth_time):
-            return jsonify({"fulfillmentText": "收到日期了！那請問妳是在幾點幾分出生的呢？（例如：10:00）"})
+        # 2. 檢查時間並判斷使用者是否說了「不知道」
+        resolved_query = req.get('queryResult', {}).get('queryText', '')
+        user_says_unknown = any(k in resolved_query for k in ['不知道', '忘記了', '不確定', '不曉得', '查不到'])
+        
+        if is_invalid(birth_time) and not user_says_unknown:
+            return jsonify({"fulfillmentText": "請問妳是在幾點幾分出生的？如果不知道，請輸入「不知道時間」"})
             
-        if is_invalid(str(raw_location)):
-            return jsonify({"fulfillmentText": "最後一步囉！請問妳的出生城市在哪裡呢？（例如：台北市、嘉義縣）"})
-            
-        # 3. 資料到齊，開始進行極致的防呆格式解析
         try:
             # ---- A. 日期解析 ----
             if 'T' in birth_date:
@@ -194,53 +263,43 @@ def webhook():
             else:
                 raise ValueError("未知的日期格式")
 
-            # ---- B. 時間解析 & 24小時制修正防呆 ----
-            # Dialogflow 常把 "10:00" 自動當成 "22:00" (晚上10點)
-            hour_str, minute_str = "12", "00"
-            if 'T' in birth_time:
-                time_part = birth_time.split('T')[1]
-                hour_str = time_part.split(':')[0]
-                minute_str = time_part.split(':')[1]
-            elif ':' in birth_time:
-                hour_str, minute_str = birth_time.split(':')
-            elif len(birth_time) == 4 and birth_time.isdigit():
-                hour_str, minute_str = birth_time[0:2], birth_time[2:4]
-
-            hour = int(hour_str)
-            minute = int(minute_str)
-
-            # 【黃金防呆線】如果 Dialogflow 擅自判定為晚上 (22點)，但原對話文字中沒有提到"晚上/下午/PM"
-            # 或者是妳在右側測試時單純打 "10:00"，我們自動幫她校正回早上的 10 點！
-            resolved_query = req.get('queryResult', {}).get('queryText', '')
-            if hour > 12 and not any(k in resolved_query for k in ['晚', '下午', 'pm', 'PM', '夜']):
-                hour = hour - 12
-
-            # 重新補零轉回字串
-            final_hour = str(hour).zfill(2)
-            final_minute = str(minute).zfill(2)
-
-            # ---- C. 出生城市精準萃取 ----
-            # 如果接收到的是字典（Dict），從中抓出 'admin-area' 或 'city'，避免噴出整串 JSON
-            clean_location = "未知城市"
-            if isinstance(raw_location, dict):
-                clean_location = raw_location.get('admin-area') or raw_location.get('city') or raw_location.get('subadmin-area') or "未知城市"
+            # ---- B. 時間解析 ----
+            if user_says_unknown:
+                hour_str, minute_str = "不知道", "不知道"
             else:
-                clean_location = str(raw_location)
+                hour_str, minute_str = "12", "00"
+                if 'T' in birth_time:
+                    time_part = birth_time.split('T')[1]
+                    hour_str = time_part.split(':')[0]
+                    minute_str = time_part.split(':')[1]
+                elif ':' in birth_time:
+                    hour_str, minute_str = birth_time.split(':')
+                elif len(birth_time) == 4 and birth_time.isdigit():
+                    hour_str, minute_str = birth_time[0:2], birth_time[2:4]
 
-            # 4. 呼叫解算函數，噴出完美成果！
-            result_text = calculate_local_ascendant(year, month, day, final_hour, final_minute, clean_location)
+            # 3. 呼叫推算公式
+            result_text = calculate_formula_ascendant(month, day, hour_str, minute_str)
             
         except Exception as e:
-            result_text = f"❌ 抱歉，輸入的生日格式解析出錯: {str(e)}"
+            result_text = f"抱歉，輸入的生日格式出錯: {str(e)}"
         
         return jsonify({"fulfillmentText": result_text})
+
+    # 💡 LINE 新增功能三：查詢 2026 水逆行事曆
+    # (請確保你在 Dialogflow 建立的 Intent 名稱叫：ask_mercury_retrograde)
+    elif intent_name == 'ask_mercury_retrograde':
+        if MERCURY_DATA_2026:
+            reply_text = "⚠️ 【2026 星座行事曆】\n幫你查到今年的水逆時間囉！請提前做好檔案備份：\n\n"
+            for idx, event in enumerate(MERCURY_DATA_2026, 1):
+                reply_text += f"🔮 第 {idx} 波水逆：\n{event}\n\n"
+            reply_text += "💡 溫馨提示：水逆期間容易通訊不良或設備損壞，多點大愛與耐心喔！"
+        else:
+            reply_text = "抱歉，目前無法連線行星曆資料庫，晚點再幫你查！"
+            
+        return jsonify({"fulfillmentText": reply_text})
 
     return jsonify({"fulfillmentText": "未知的 Dialogflow 指令"})
 
 
 if __name__ == "__main__":
     app.run(debug=True)
-
-
-
-    
