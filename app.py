@@ -139,7 +139,7 @@ def calculate_formula_ascendant(month, day, hour_str, minute_str):
     result = (
         f"✨ 妳的上升星座是：{display_sign}✨\n\n"
         f"1️⃣ 妳的生日是 {month}月{day}日，太陽星座為【{display_sun}】。\n"
-        f"上升星座代表妳出生時，東方地平線正升起的星座，是妳的外在人格面具"
+        f"上升星座代表出生時，東方地平線正升起的星座，是的外在人格面具"
     )
     
     if is_unknown_time:
@@ -264,7 +264,7 @@ def webhook():
         user_says_unknown = any(k in resolved_query for k in ['不知道', '忘記了', '不確定', '不曉得', '查不到'])
         
         if is_invalid(birth_time) and not user_says_unknown:
-            return jsonify({"fulfillmentText": "請問妳是在幾點幾分出生的呢？（例如：14:20）如果不知道，請輸入不知道"})
+            return jsonify({"fulfillmentText": "請問妳是在幾點幾分出生的呢？（ 24H ）如果不知道，請輸入不知道"})
             
         try:
             # ---- A. 日期精確解析 ----
@@ -308,7 +308,7 @@ def webhook():
     # LINE 新增功能三：查詢 2026 水逆行事曆
     elif intent_name == 'ask_mercury_retrograde':
         if MERCURY_DATA_2026:
-            reply_text = "⚠️ 【2026 星座行事曆】\n幫你查到今年的水逆時間囉！：\n\n"
+            reply_text = "⚠️ 今年的水逆時間！：\n\n"
             for idx, event in enumerate(MERCURY_DATA_2026, 1):
                 reply_text += f"🔮 第 {idx} 波水逆：\n{event}\n\n"
             reply_text += "💡 溫馨提示：水逆期間容易思緒混亂、心情低落還有通訊不良或設備損壞，多點耐心、對自己要好點歐！"
