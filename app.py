@@ -81,7 +81,7 @@ def get_sun_sign(month, day):
 def calculate_formula_ascendant(month, day, hour_str, minute_str):
     """
     全面採用標準 24 小時制（0 ~ 23 點）計算：
-    1. 基準點：清晨 06:00 (以 24 點鐘制度計算為 360 分鐘) 出生，上升星座 = 太陽星座。
+    1. 基準點：清晨 06:00 出生，上升星座 = 太陽星座。
     2. 每往後延遲 120 分鐘（2個小時），上升星座向後順移一個星座。
     3. 【保底防呆】若遇到不知道時間，則固定以中午 12:00（24制）進行盲測。
     """
@@ -139,13 +139,14 @@ def calculate_formula_ascendant(month, day, hour_str, minute_str):
     result = (
         f"✨ 妳的上升星座是：{display_sign}✨\n\n"
         f"1️⃣ 妳的生日是 {month}月{day}日，太陽星座為【{display_sun}】。\n"
-        f"上升星座代表出生時，東方地平線正升起的星座，是的外在人格面具"
+        f"2️⃣ 系統以 24H 制（{time_display}）進行口訣公式推算。\n\n"
+        f"上升星座代表出生時，東方地平線正升起的星座，是妳的外在人格面具！"
     )
     
     if is_unknown_time:
         result += (
             "\n\n💡【貼心提示】\n"
-            "因為妳不確定具體出生時間，系統已自動使用中午 2:00進行。"
+            "因為妳不確定具體出生時間，系統已自動使用中午12:00進行。"
         )
         
     return result
@@ -222,7 +223,7 @@ def index():
 
 
 # ==========================================
-# Dialogflow Webhook 路由（完美相容 24 小時制解析）
+# Dialogflow Webhook 路由（加入強效 LINE 時區去尾防禦）
 # ==========================================
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -236,7 +237,7 @@ def webhook():
         result_text = get_today_fortune(constellation)
         return jsonify({"fulfillmentText": result_text})
         
-    # LINE 功能二：算上升星座（改為相容 24H 機制）
+    # LINE 功能二：算上升星座（強效去時區版）
     elif intent_name == 'calculate_ascendant':
         parameters = req.get('queryResult', {}).get('parameters', {})
         
@@ -245,12 +246,6 @@ def webhook():
         
         birth_date = str(raw_date).strip()  
         birth_time = str(raw_time).strip()  
-        
-        # 💥 除錯日誌：幫妳在終端機印出 Dialogflow 丟過來的真實長相，方便排查
-        print("====== 🔍 [Dialogflow 參數除錯] ======")
-        print(f"原始 birth_date: {raw_date}")
-        print(f"原始 birth_time: {raw_time}")
-        print("=======================================")
 
         def is_invalid(val):
             return not val or '$' in val or '@' in val or 'sys.' in val or val.lower() == 'none' or val == ''
@@ -264,7 +259,7 @@ def webhook():
         user_says_unknown = any(k in resolved_query for k in ['不知道', '忘記了', '不確定', '不曉得', '查不到'])
         
         if is_invalid(birth_time) and not user_says_unknown:
-            return jsonify({"fulfillmentText": "請問妳是在幾點幾分出生的呢？（ 24H ）如果不知道，請輸入不知道"})
+            return jsonify({"fulfillmentText": "請問妳是在幾點幾分出生的呢？（使用24H制）如果不知道，請輸入「不知道時間」"})
             
         try:
             # ---- A. 日期精確解析 ----
@@ -277,27 +272,39 @@ def webhook():
             else:
                 raise ValueError("未知的日期格式")
 
-            # ---- B. 24小時制時間精確解析 ----
+            # ---- B. 24小時制時間精確解析（強力阻斷 LINE/時區標籤干擾） ----
             if user_says_unknown:
                 hour_str, minute_str = "不知道", "不知道"
             else:
                 hour_str, minute_str = "12", "00"
-                # 處理 Dialogflow 經典 ISO 字串: 2026-06-04T14:30:00+08:00
+                
+                # 情況 1：處理帶有 T 的完整 ISO 字串 (例如: 2026-06-04T14:30:00+08:00 或 14:30:00Z)
                 if 'T' in birth_time:
-                    time_part = birth_time.split('T')[1]  # 拿 14:30:00+08:00
-                    time_clean = time_part.split('+')[0]  # 拿 14:30:00
-                    hour_str = time_clean.split(':')[0]
-                    minute_str = time_clean.split(':')[1]
+                    time_part = birth_time.split('T')[1]  
+                    # 遇到時區符號直接用冒號切開，強制只取最前面的前兩段（時與分）
+                    time_segments = time_part.split(':')
+                    if len(time_segments) >= 2:
+                        hour_str = time_segments[0]
+                        minute_str = time_segments[1]
+                        
+                # 情況 2：處理 LINE 或是原生帶有時區正負號的冒號字串 (例如: 14:30:00+08:00)
                 elif ':' in birth_time:
-                    # 處理標準 14:30 格式
-                    parts = birth_time.split(':')
+                    # 先用加號與減號把可能的時區字元切開，確保只留純時間
+                    clean_time = birth_time.split('+')[0].split('-')[0].strip()
+                    parts = clean_time.split(':')
                     hour_str = parts[0]
                     minute_str = parts[1]
+                    
+                # 情況 3：處理純 4 位數字 (例如: 1430)
                 elif len(birth_time) == 4 and birth_time.isdigit():
-                    # 處理 1430 格式
                     hour_str, minute_str = birth_time[0:2], birth_time[2:4]
 
-            # 3. 呼叫全面更新為 24H 的推算公式
+            # 💥 終端機 Log 除錯日誌：可以觀察過濾完畢後的乾淨數字
+            print("====== 🔍 [時區防禦完成 Log] ======")
+            print(f"最終成功送入計算公式的時間為 -> {hour_str} 點 {minute_str} 分")
+            print("====================================")
+
+            # 3. 呼叫公式進行計算
             result_text = calculate_formula_ascendant(month, day, hour_str, minute_str)
             
         except Exception as e:
@@ -305,13 +312,13 @@ def webhook():
         
         return jsonify({"fulfillmentText": result_text})
 
-    # LINE 新增功能三：查詢 2026 水逆行事曆
+    # LINE 功能三：查詢 2026 水逆行事曆
     elif intent_name == 'ask_mercury_retrograde':
         if MERCURY_DATA_2026:
             reply_text = "⚠️ 今年的水逆時間！：\n\n"
             for idx, event in enumerate(MERCURY_DATA_2026, 1):
                 reply_text += f"🔮 第 {idx} 波水逆：\n{event}\n\n"
-            reply_text += "💡 溫馨提示：水逆期間容易思緒混亂、心情低落還有通訊不良或設備損壞，多點耐心、對自己要好點歐！"
+            reply_text += "💡 溫馨提示：水逆期間容易思緒混亂、心情低落還有通訊不良或設備損壞，多點大愛與耐心，對自己好點歐！"
         else:
             reply_text = "抱歉，目前無法連線行星曆資料庫，晚點再幫你查！"
             
